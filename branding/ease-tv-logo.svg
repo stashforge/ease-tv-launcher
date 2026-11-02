@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Ease TV logo concept</title>
+  <desc>A softly rounded teal tile with an open television frame and a gentle flowing mint-to-lilac curve.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#163C47"/><stop offset="1" stop-color="#152333"/>
+    </linearGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#DAF6EF"/><stop offset="1" stop-color="#B8DAD7"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#8EE2CF"/><stop offset="0.55" stop-color="#B1D9E7"/><stop offset="1" stop-color="#C5BBED"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#background)"/>
+  <rect x="196" y="264" width="632" height="428" rx="78" fill="none" stroke="url(#frame)" stroke-width="30"/>
+  <path d="M278 524 C358 438 414 438 502 510 S664 600 746 508" fill="none" stroke="url(#flow)" stroke-width="38" stroke-linecap="round"/>
+  <path d="M440 758 H584" fill="none" stroke="#C4E5E0" stroke-width="28" stroke-linecap="round"/>
+</svg>

@@ -10,9 +10,17 @@ A calm, remote-first Android TV launcher: a row of favourite apps, large Continu
 
 Captured on the OnePlus Q1. The example wallpaper and installed apps reflect that TV; fresh installations include the abstract wallpapers bundled with Ease TV.
 
-**Home and Continue playing**
+**Minimal Home**
 
-![Ease TV Home with favourite apps and large Hotstar Continue playing cards](docs/images/home.webp)
+The favourites row sits near the bottom, leaving room for the wallpaper and a small Continue playing preview.
+
+![Ease TV minimal Home with the favourites row near the bottom and Continue playing peeking below](docs/images/home-minimal.webp)
+
+**Expanded Home and Continue playing**
+
+Press Down to reveal the larger show cards.
+
+![Ease TV expanded Home with favourite apps and large Hotstar Continue playing cards](docs/images/home.webp)
 
 **Apps**
 

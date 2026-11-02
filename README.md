@@ -6,6 +6,22 @@ A calm, remote-first Android TV launcher: a row of favourite apps, large Continu
 
 **Android package:** `com.ease.tv` · **Android:** 8.0/API 26 or newer · **Project:** `ease-tv-launcher`
 
+## Screenshots
+
+Captured on the OnePlus Q1. The example wallpaper and installed apps reflect that TV; fresh installations include the abstract wallpapers bundled with Ease TV.
+
+**Home and Continue playing**
+
+![Ease TV Home with favourite apps and large Hotstar Continue playing cards](docs/images/home.webp)
+
+**Apps**
+
+![Ease TV Apps page with five columns and labels below each app](docs/images/apps.webp)
+
+**Launcher settings**
+
+![Ease TV settings with wallpaper, animations and time-format controls](docs/images/settings.webp)
+
 ## What it does
 
 - A horizontally scrolling favourites row with add, remove and rearrange controls.

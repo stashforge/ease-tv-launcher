@@ -19,6 +19,11 @@ public final class AppCatalogActivity extends Activity {
  private GridView grid;private boolean selecting;private Config config;private BaseAdapter adapter;
  private Set<String> additions,removed;
  private boolean navigating;
+ private int navigationTarget=-1;
+ // Kept until the selected view is laid out; GridView selection is not synchronous.
+ private long focusDuration=120;
+ private boolean repeatNavigation;
+ private Runnable navigationFinish,navigationSettled;
  private static final class App {String label,pkg;ComponentName component;Drawable icon,banner;}
  private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
  @Override public void onCreate(Bundle state){
@@ -30,7 +35,7 @@ public final class AppCatalogActivity extends Activity {
    public View getView(int p,View old,ViewGroup parent){
     App app=apps.get(p);
     LinearLayout tile=new LinearLayout(AppCatalogActivity.this){
-     @Override public void setSelected(boolean selected){boolean changed=selected!=isSelected();super.setSelected(selected);if(changed)animate().scaleX(selected?1.2f:1f).scaleY(selected?1.2f:1f).setDuration(160).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();}
+     @Override public void setSelected(boolean selected){boolean changed=selected!=isSelected();super.setSelected(selected);if(changed)animate().scaleX(selected?1.2f:1f).scaleY(selected?1.2f:1f).setDuration(config.animations?focusDuration:0).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();}
     };tile.setOrientation(LinearLayout.VERTICAL);tile.setGravity(Gravity.CENTER);tile.setPadding(dp(4),dp(6),dp(4),dp(6));
     int artWidth=(getResources().getDisplayMetrics().widthPixels-dp(80)-dp(30)*(COLUMNS-1))/COLUMNS-dp(8);
     int artHeight=Math.round(artWidth*9f/16f);
@@ -49,13 +54,18 @@ public final class AppCatalogActivity extends Activity {
   grid.setSelector(new ColorDrawable(Color.TRANSPARENT));grid.setAdapter(adapter);grid.setOnItemClickListener((p,v,at,id)->{if(selecting){if(addOnce(at))finish();}else launch(at);});grid.setOnItemLongClickListener((p,v,at,id)->{if(selecting)addOnce(at);else appMenu(v,at);return true;});page.addView(grid,new FrameLayout.LayoutParams(-1,-1));
   grid.setOnKeyListener((view,key,event)->{
    if(key!=KeyEvent.KEYCODE_DPAD_RIGHT&&key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_UP&&key!=KeyEvent.KEYCODE_DPAD_DOWN)return false;
-   if(event.getAction()!=KeyEvent.ACTION_DOWN||navigating||apps.isEmpty())return true;
-   int current=Math.max(0,grid.getSelectedItemPosition()),target=current;
+   if(event.getAction()!=KeyEvent.ACTION_DOWN||apps.isEmpty())return true;
+   repeatNavigation=event.getRepeatCount()>0;
+   focusDuration=repeatNavigation?70:120;
+   int current=navigationTarget>=0?navigationTarget:Math.max(0,grid.getSelectedItemPosition()),target=current;
    if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=Math.min(apps.size()-1,current+1);
    else if(key==KeyEvent.KEYCODE_DPAD_LEFT)target=Math.max(0,current-1);
    else if(key==KeyEvent.KEYCODE_DPAD_UP)target=current>=COLUMNS?current-COLUMNS:current;
    else target=current/COLUMNS<(apps.size()-1)/COLUMNS?Math.min(apps.size()-1,current+COLUMNS):current;
-   if(target!=current)moveSelection(target);
+   if(target!=current){
+    navigationTarget=target;
+    if(!navigating)moveSelection(target);
+   }
    return true;
   });
   LinearLayout heading=new LinearLayout(this);heading.setOrientation(LinearLayout.VERTICAL);heading.setPadding(dp(40),dp(24),dp(40),0);heading.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -88,10 +98,26 @@ public final class AppCatalogActivity extends Activity {
   if(target<COLUMNS)desired=grid.getPaddingTop();
   final int destination=desired;
   int distance=top-destination;
-  if(distance==0){grid.setSelection(target);return;}
+  if(distance==0){grid.setSelection(target);navigationTarget=-1;return;}
+  if(!config.animations){grid.setSelectionFromTop(target,destination);navigationTarget=-1;return;}
   navigating=true;
-  grid.smoothScrollBy(distance,240);
-  grid.postDelayed(()->{if(isFinishing()||isDestroyed())return;grid.setSelection(target);navigating=false;},260);
+  int duration=repeatNavigation?100:180;
+  grid.smoothScrollBy(distance,duration);
+  navigationFinish=()->{
+   navigationFinish=null;if(isFinishing()||isDestroyed())return;
+   grid.setSelection(target);
+   // Wait for layout before measuring another row. Coalesce into one destination,
+   // rather than dropping DPAD presses or replaying an unbounded animation queue.
+   navigationSettled=()->{
+    navigationSettled=null;if(isFinishing()||isDestroyed())return;
+    navigating=false;
+    int next=navigationTarget;
+    if(next>=0&&next!=target)moveSelection(next);
+    else navigationTarget=-1;
+   };
+   grid.postOnAnimation(navigationSettled);
+  };
+  grid.postDelayed(navigationFinish,duration+20);
  }
  private boolean home(String pkg){int at=config.dockApps.indexOf(pkg);return !removed.contains(pkg)&&((at>=0&&at<config.columns)||additions.contains(pkg));}
  private boolean addOnce(int at){
@@ -137,13 +163,18 @@ public final class AppCatalogActivity extends Activity {
  static final class SelectionRim extends Drawable {
   private final android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
   private final float density;private boolean active;
+  private final android.graphics.RectF rim=new android.graphics.RectF();
   SelectionRim(float density){this.density=density;paint.setStyle(android.graphics.Paint.Style.STROKE);}
   @Override public boolean isStateful(){return true;}
   @Override protected boolean onStateChange(int[] states){boolean next=false;for(int state:states)if(state==android.R.attr.state_selected||state==android.R.attr.state_focused||state==android.R.attr.state_pressed)next=true;if(next==active)return false;active=next;invalidateSelf();return true;}
-  @Override public void draw(android.graphics.Canvas canvas){if(!active)return;android.graphics.Rect bounds=getBounds();android.graphics.RectF rim=new android.graphics.RectF(bounds);rim.inset(1.5f*density,1.5f*density);paint.setShader(new android.graphics.LinearGradient(rim.left,rim.top,rim.right,rim.bottom,new int[]{0xff51baff,0xffb681ff,0xff62e5e0},null,android.graphics.Shader.TileMode.CLAMP));paint.setStrokeWidth(3*density);canvas.drawRoundRect(rim,12*density,12*density,paint);}
+  @Override protected void onBoundsChange(android.graphics.Rect bounds){rim.set(bounds);rim.inset(1.5f*density,1.5f*density);paint.setShader(new android.graphics.LinearGradient(rim.left,rim.top,rim.right,rim.bottom,new int[]{0xff51baff,0xffb681ff,0xff62e5e0},null,android.graphics.Shader.TileMode.CLAMP));paint.setStrokeWidth(3*density);}
+  @Override public void draw(android.graphics.Canvas canvas){if(active)canvas.drawRoundRect(rim,12*density,12*density,paint);}
   @Override public void setAlpha(int alpha){paint.setAlpha(alpha);invalidateSelf();}
   @Override public void setColorFilter(android.graphics.ColorFilter filter){paint.setColorFilter(filter);invalidateSelf();}
   @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
  }
- @Override protected void onDestroy(){worker.shutdownNow();super.onDestroy();}
+ @Override protected void onDestroy(){
+  if(grid!=null){if(navigationFinish!=null)grid.removeCallbacks(navigationFinish);if(navigationSettled!=null)grid.removeCallbacks(navigationSettled);}
+  worker.shutdownNow();super.onDestroy();
+ }
 }

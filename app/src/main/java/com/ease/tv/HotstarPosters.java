@@ -2,6 +2,7 @@ package com.ease.tv;
 import android.content.Context;
 import android.graphics.*;
 import android.net.Uri;
+import android.util.LruCache;
 import java.io.*;
 import java.net.*;
 import java.security.MessageDigest;
@@ -10,11 +11,18 @@ import java.util.*;
 /** Bounded foreground refresh: HTTPS posters cached privately, no polling or credentials. */
 final class HotstarPosters {
  private static final int LIMIT=2*1024*1024;
+ // Eviction only releases our reference: displayed rows may still own the bitmap.
+ private static final LruCache<String,Bitmap> decoded=new LruCache<String,Bitmap>(8*1024*1024){
+  @Override protected int sizeOf(String key,Bitmap bitmap){return bitmap.getAllocationByteCount();}
+ };
  static Bitmap load(Context ctx,String location){
   if(Thread.currentThread().isInterrupted()||location==null||location.isEmpty())return null;
   HttpURLConnection connection=null;
   try{
    Uri uri=Uri.parse(location);String scheme=uri.getScheme();byte[] bytes;
+   // Content providers may replace bytes at the same URI; keep their foreground refresh behavior.
+   boolean reusable="https".equals(scheme)||"android.resource".equals(scheme);
+   if(reusable){Bitmap cached=decoded.get(location);if(cached!=null)return Thread.currentThread().isInterrupted()?null:cached;}
    if("content".equals(scheme)||"android.resource".equals(scheme)){
     try(InputStream in=ctx.getContentResolver().openInputStream(uri)){if(in==null)return null;bytes=PosterBytes.read(in,LIMIT);}
    }else if("https".equals(scheme)){
@@ -35,14 +43,21 @@ final class HotstarPosters {
      if(status!=200||connection.getContentLengthLong()>LIMIT)return null;
      try(InputStream in=connection.getInputStream()){bytes=PosterBytes.read(in,LIMIT);}
      // Cache only valid images; a failed decoder is retried on the next foreground visit.
-     if(decode(bytes)==null)return null;
+     Bitmap bitmap=decode(bytes);if(bitmap==null)return null;
      if(Thread.currentThread().isInterrupted())return null;
      File temp=File.createTempFile("poster-", ".tmp", dir);
      try{try(OutputStream out=new FileOutputStream(temp)){out.write(bytes);}if(!temp.renameTo(file))return null;}finally{temp.delete();}
      File[] files=dir.listFiles();if(files!=null&&files.length>10){Arrays.sort(files,Comparator.comparingLong(File::lastModified));for(int i=0;i<files.length-10;i++)files[i].delete();}
+     if(Thread.currentThread().isInterrupted())return null;
+     decoded.put(location,bitmap);
+     return bitmap;
     }
    }else return null;
-   return decode(bytes);
+   if(Thread.currentThread().isInterrupted())return null;
+   Bitmap bitmap=decode(bytes);
+   if(Thread.currentThread().isInterrupted())return null;
+   if(reusable&&bitmap!=null)decoded.put(location,bitmap);
+   return bitmap;
   }catch(Exception ignored){return null;}finally{if(connection!=null)connection.disconnect();}
  }
  private static Bitmap decode(byte[] data){

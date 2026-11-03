@@ -6,6 +6,8 @@ A calm, remote-first Android TV launcher: a row of favourite apps, large Continu
 
 **Android package:** `com.ease.tv` · **Android:** 8.0/API 26 or newer · **Project:** `ease-tv-launcher`
 
+Download the APK from [GitHub Releases](https://github.com/stashforge/ease-tv-launcher/releases/latest). See [release history](CHANGELOG.md) for changes.
+
 ## Screenshots
 
 Captured on the OnePlus Q1. The example wallpaper and installed apps reflect that TV; fresh installations include the abstract wallpapers bundled with Ease TV.
@@ -40,7 +42,8 @@ Press Down to reveal the larger show cards.
 - JPEG, PNG and WebP imports copied into the app's private storage. Hold an imported wallpaper to remove that copy. The original stays in storage.
 - Small wallpaper previews cached in memory, capped at 8 MiB. File changes refresh the preview; removed imports are evicted.
 - Inputs, network status and settings shortcuts. Input labels distinguish confirmed connections from the last selected input; selection history is not proof that a device is currently connected.
-- Optional animations and a thin gradient focus ring.
+- Optional animations and a thin gradient focus ring. Focus transitions shorten while holding an arrow key on Home and Apps.
+- Continue playing cards enlarge on focus, with a fixed progress bar and fading episode details. Season/episode numbers and estimated time remaining appear when the provider supplies them.
 
 The current UI uses a simulated glass appearance. It does not apply a live background blur.
 
@@ -72,7 +75,7 @@ The old CleanYourTV app and Ease TV have different package IDs. Android does **n
 
 ## Remote controls
 
-- Arrows move focus; OK opens the selected app or show.
+- Arrows move focus; holding a direction uses shorter focus animations. Apps retains the latest requested position during row scrolling. OK opens the selected app or show.
 - Down from favourites reveals Continue playing; Up returns to favourites.
 - Hold a favourite for Move or Remove from Home. In Move mode use Left/Right, OK to save, or Back to cancel.
 - Hold an app in Apps for its menu. The Add apps page explains its tap/hold behaviour.

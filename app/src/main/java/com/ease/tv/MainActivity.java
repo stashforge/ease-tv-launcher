@@ -485,6 +485,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        NavigationDiagnostics.configure(getIntent());
         setContentView(R.layout.activity_main);
         density = getResources().getDisplayMetrics().density;
         // config.xml, overlaid by config.json from a pushed theme (see Config and tools/theme.sh).
@@ -973,7 +974,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         if (festive) applyFestiveSkin((TextView) btnInputs, (TextView) btnSettings);
         configureCompactTopBar();
-        final View watchingShade = new View(this);
+        // A single background has no overlapping content; alpha can be applied without a full-screen group layer.
+        final View watchingShade = new View(this) {
+            @Override public boolean hasOverlappingRendering() { return false; }
+        };
         watchingShade.setBackgroundColor(0xff000000);
         watchingShade.setAlpha(0f);
         watchingShade.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -1152,6 +1156,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        NavigationDiagnostics.configure(intent);
         if (openLauncherSettingsIfAsked(intent)) return;
         if (openLibraryIfAsked(intent)) return;
         if (openInputsIfAsked(intent)) return;
@@ -1595,6 +1600,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        NavigationDiagnostics.key(event, homeShelves!=null?homeShelves.focusKind():"other", getCurrentFocus());
         if (homeShelves != null && homeShelves.handleMoveKey(event)) return true;
         // Vendor keys (TCL Netflix button, 4062) never reach the key services, only the focused window, so their
         // "hold:" entries run here too or nowhere. Only while resumed: onPause releases Home's holds, and a DOWN

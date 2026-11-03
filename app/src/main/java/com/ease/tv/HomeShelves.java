@@ -25,6 +25,8 @@ final class HomeShelves extends FrameLayout {
  private final List<View> appTiles=new ArrayList<>(),watchTiles=new ArrayList<>();
  private final List<ImageView> watchImages=new ArrayList<>();
  private final Map<View,ShelfProgress> progressBars=new IdentityHashMap<>();
+ private static final class RevealRequest {int target;boolean known;Runnable pending;}
+ private final Map<HorizontalScrollView,RevealRequest> revealRequests=new IdentityHashMap<>();
  private final List<HotstarWatchNext.Row> shows=new ArrayList<>();
  private final Map<View,AppAdapter.Entry> appEntries=new IdentityHashMap<>();
  private View moving;
@@ -35,7 +37,9 @@ final class HomeShelves extends FrameLayout {
  private String appSignature=null,showIdentity="";
  private int selectedApp,selectedShow;
  private boolean expanded,shadeExpanded;
+ private float pageTargetY=Float.NaN;
  private boolean animate;
+ private boolean repeatStep;
  private final float density;
  HomeShelves(Context ctx,boolean animate,Actions actions){
   super(ctx);this.actions=actions;this.animate=animate;density=getResources().getDisplayMetrics().density;
@@ -86,7 +90,7 @@ final class HomeShelves extends FrameLayout {
   if(sig.toString().equals(appSignature))return;appSignature=sig.toString();
   org.json.JSONArray canonical=new org.json.JSONArray();for(AppAdapter.Entry app:apps)canonical.put(app.pkg);
   getContext().getSharedPreferences("home_shelf",Context.MODE_PRIVATE).edit().putString("order",canonical.toString()).apply();
-  boolean focused=appsLine.hasFocus();if(moving!=null)finishMoving(false);appsLine.removeAllViews();appTiles.clear();appEntries.clear();
+  boolean focused=appsLine.hasFocus();if(moving!=null)finishMoving(false);resetReveal(appsScroll);appsLine.removeAllViews();appTiles.clear();appEntries.clear();
   for(AppAdapter.Entry app:apps){
    LinearLayout t=appTile(appWidth,appHeight+34);artwork(t,app.banner!=null?app.banner:app.icon,appHeight,app.banner!=null);t.addView(label(app.label,15),new LinearLayout.LayoutParams(-1,dp(34)));
    final int index=appTiles.size();wire(t,false,index,null);t.setOnClickListener(v->actions.launch(app));t.setOnLongClickListener(v->{showAppMenu(t,app);return true;});appsLine.addView(t);appTiles.add(t);appEntries.put(t,app);
@@ -103,38 +107,52 @@ final class HomeShelves extends FrameLayout {
   selectedApp=Math.min(selectedApp,appTiles.size()-1);if(focused)focusApps();
  }
  void setShows(List<HotstarWatchNext.Row> rows){
-  StringBuilder ids=new StringBuilder();for(HotstarWatchNext.Row r:rows)ids.append(r.id).append('|').append(r.title).append('|').append(r.episode).append('|');
-  boolean same=ids.toString().equals(showIdentity);shows.clear();shows.addAll(rows);
-  if(same){for(int i=0;i<rows.size();i++){watchImages.get(i).setImageDrawable(HotstarWatchNext.banner(getContext(),rows.get(i),false));ShelfProgress bar=progressBars.get(watchTiles.get(i));bar.row=rows.get(i);bar.invalidate();}return;}
-  boolean focused=watchLine.hasFocus();showIdentity=ids.toString();watchLine.removeAllViews();watchTiles.clear();watchImages.clear();progressBars.clear();
+  StringBuilder ids=new StringBuilder();for(HotstarWatchNext.Row r:rows)ids.append(r.id).append('|').append(r.title).append('|').append(r.episode).append('|').append(r.seasonNumber).append('|').append(r.episodeNumber).append('|');
+  boolean same=ids.toString().equals(showIdentity);
+  if(same){
+   for(int i=0;i<rows.size();i++){
+    HotstarWatchNext.Row before=shows.get(i),after=rows.get(i);
+    if(before.poster!=after.poster||!Objects.equals(before.posterUri,after.posterUri))watchImages.get(i).setImageDrawable(HotstarWatchNext.banner(getContext(),after,false));
+    ShelfProgress bar=progressBars.get(watchTiles.get(i));bar.setRow(after);
+    if(before.position!=after.position||before.duration!=after.duration)bar.invalidate();
+   }
+   shows.clear();shows.addAll(rows);return;
+  }
+  shows.clear();shows.addAll(rows);
+  boolean focused=watchLine.hasFocus();showIdentity=ids.toString();resetReveal(watchScroll);watchLine.removeAllViews();watchTiles.clear();watchImages.clear();progressBars.clear();
   int width=Math.max(220,Math.round((getResources().getDisplayMetrics().widthPixels/density-154)/3));int artHeight=Math.round(width*9f/16f);
   for(int i=0;i<rows.size();i++){
    HotstarWatchNext.Row row=rows.get(i);LinearLayout t=tile(width,artHeight+60);ImageView image=artwork(t,HotstarWatchNext.banner(getContext(),row,false),artHeight,true);watchImages.add(image);
    FrameLayout art=(FrameLayout)image.getParent();GradientDrawable clip=new GradientDrawable();clip.setColor(0xff171b24);clip.setCornerRadius(13.5f*density);art.setBackground(clip);art.setOutlineProvider(ViewOutlineProvider.BACKGROUND);art.setClipToOutline(true);
-   boolean hasEpisode=row.episode!=null&&!row.episode.trim().isEmpty();
-   View episodeShade=new View(getContext());episodeShade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00000000,0xd9000000}));episodeShade.setAlpha(0f);FrameLayout.LayoutParams shadeLp=new FrameLayout.LayoutParams(-1,dp(78),Gravity.BOTTOM);art.addView(episodeShade,shadeLp);
-   TextView episode=label(hasEpisode?row.episode:"",12);episode.setSingleLine(false);episode.setMaxLines(2);episode.setGravity(Gravity.LEFT|Gravity.BOTTOM);episode.setTextColor(0xfff1f4fb);episode.setTypeface(getResources().getFont(R.font.manrope_medium));episode.setAlpha(0f);episode.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+   String details=WatchDetails.text(row.title,row.episode,row.seasonNumber,row.episodeNumber,row.position,row.duration);
+   View episodeShade=new View(getContext()){@Override public boolean hasOverlappingRendering(){return false;}};episodeShade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00000000,0xd9000000}));episodeShade.setAlpha(0f);FrameLayout.LayoutParams shadeLp=new FrameLayout.LayoutParams(-1,dp(78),Gravity.BOTTOM);art.addView(episodeShade,shadeLp);
+   TextView episode=label(details,12);episode.setSingleLine(false);episode.setMaxLines(2);episode.setGravity(Gravity.LEFT|Gravity.BOTTOM);episode.setTextColor(0xfff1f4fb);episode.setTypeface(getResources().getFont(R.font.manrope_medium));episode.setAlpha(0f);episode.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
    FrameLayout.LayoutParams episodeLp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);episodeLp.leftMargin=dp(13);episodeLp.rightMargin=dp(13);episodeLp.bottomMargin=dp(24);art.addView(episode,episodeLp);
-   ShelfProgress progress=new ShelfProgress(getContext(),row,episode,episodeShade,hasEpisode);art.addView(progress,new FrameLayout.LayoutParams(-1,-1));progressBars.put(t,progress);
+   ShelfProgress progress=new ShelfProgress(getContext(),row,episode,episodeShade);art.addView(progress,new FrameLayout.LayoutParams(-1,-1));progressBars.put(t,progress);
    LinearLayout caption=new LinearLayout(getContext());caption.setOrientation(LinearLayout.VERTICAL);caption.addView(label(row.title,16),new LinearLayout.LayoutParams(-1,dp(28)));caption.setAlpha(0f);t.addView(caption);
-   final int index=i;wire(t,true,i,caption);t.setOnClickListener(v->{if(index<shows.size())HotstarWatchNext.open(getContext(),shows.get(index));});t.setOnLongClickListener(v->true);watchLine.addView(t);watchTiles.add(t);
+   final int index=i;wire(t,true,i,caption);t.setOnClickListener(v->{NavigationDiagnostics.event("click",v);if(index<shows.size())HotstarWatchNext.open(getContext(),shows.get(index));});t.setOnLongClickListener(v->{NavigationDiagnostics.event("held_ignored",v);return true;});watchLine.addView(t);watchTiles.add(t);
   }
   selectedShow=Math.min(selectedShow,Math.max(0,rows.size()-1));heading.setVisibility(rows.isEmpty()?GONE:VISIBLE);watchScroll.setVisibility(rows.isEmpty()?GONE:VISIBLE);
   if(rows.isEmpty()){expanded=false;if(focused)focusApps();}else if(focused)focusShows();position(false);
  }
  private void wire(View tile,boolean watch,int index,View caption){
   tile.setOnFocusChangeListener((v,focus)->{
-   v.setSelected(focus);if(v instanceof ViewGroup)((ViewGroup)v).getChildAt(0).setSelected(focus);v.animate().scaleX(focus?(watch?1.05f:1.2f):1f).scaleY(focus?(watch?1.05f:1.2f):1f).setDuration(animate?160:0).setInterpolator(new DecelerateInterpolator()).start();
+   v.setSelected(focus);if(v instanceof ViewGroup)((ViewGroup)v).getChildAt(0).setSelected(focus);v.animate().scaleX(focus?(watch?1.1f:1.2f):1f).scaleY(focus?(watch?1.1f:1.2f):1f).setDuration(animate?(repeatStep?70:120):0).setInterpolator(new DecelerateInterpolator()).start();
+   if(watch)v.setTranslationZ(focus?dp(2):0);
    ShelfProgress progress=progressBars.get(v);if(progress!=null)progress.highlight(focus);
-   if(caption!=null)caption.animate().alpha(focus?1f:0f).setDuration(animate?120:0).start();
+   if(caption!=null)caption.animate().alpha(focus?1f:0f).setDuration(animate?(repeatStep?70:120):0).start();
    if(focus){if(watch){selectedShow=index;expanded=true;actions.watchFocused(index);}else{selectedApp=appTiles.indexOf(v);expanded=false;}position(animate);reveal(watch?watchScroll:appsScroll,v);}
   });
   tile.setOnKeyListener((v,key,event)->{
    if(key!=KeyEvent.KEYCODE_DPAD_UP&&key!=KeyEvent.KEYCODE_DPAD_DOWN&&key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT)return false;
    if(event.getAction()!=KeyEvent.ACTION_DOWN)return true;
-   if(key==KeyEvent.KEYCODE_DPAD_UP){if(watch)focusApps();else actions.top();}
-   else if(key==KeyEvent.KEYCODE_DPAD_DOWN){if(!watch)focusShows();}
-   else{List<View> tiles=watch?watchTiles:appTiles;int next=(watch?index:tiles.indexOf(v))+(key==KeyEvent.KEYCODE_DPAD_RIGHT?1:-1);if(next>=0&&next<tiles.size())tiles.get(next).requestFocus();}
+   // InputDispatcher supplies repeats for a held direction. Shorten only that synchronous focus step.
+   repeatStep=event.getRepeatCount()>0;
+   try{
+    if(key==KeyEvent.KEYCODE_DPAD_UP){if(watch)focusApps();else actions.top();}
+    else if(key==KeyEvent.KEYCODE_DPAD_DOWN){if(!watch)focusShows();}
+    else{List<View> tiles=watch?watchTiles:appTiles;int next=(watch?index:tiles.indexOf(v))+(key==KeyEvent.KEYCODE_DPAD_RIGHT?1:-1);if(next>=0&&next<tiles.size())tiles.get(next).requestFocus();}
+   }finally{repeatStep=false;}
    return true;
   });
  }
@@ -186,30 +204,65 @@ final class HomeShelves extends FrameLayout {
  void cancelMoving(){if(appPopup!=null)appPopup.dismiss();finishMoving(false);}
  private final class ShelfProgress extends View {
   private final android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-  private final TextView episode;private final View episodeShade;private final boolean hasEpisode;
-  HotstarWatchNext.Row row;private float lift;private android.animation.ValueAnimator motion;
-  ShelfProgress(Context context,HotstarWatchNext.Row row,TextView episode,View shade,boolean hasEpisode){super(context);this.row=row;this.episode=episode;this.episodeShade=shade;this.hasEpisode=hasEpisode;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
-  void highlight(boolean selected){
-   if(motion!=null)motion.cancel();
-   if(!animate){lift=selected?1f:0f;updateEpisode();invalidate();return;}
-   motion=android.animation.ValueAnimator.ofFloat(lift,selected?1f:0f);motion.setDuration(220);motion.setInterpolator(new DecelerateInterpolator());motion.addUpdateListener(a->{lift=(Float)a.getAnimatedValue();updateEpisode();invalidate();});motion.start();
+  private final android.graphics.RectF track=new android.graphics.RectF();
+  private final android.graphics.Path trackClip=new android.graphics.Path();
+  private final TextView episode;private final View episodeShade;
+  HotstarWatchNext.Row row;private boolean selected;
+  ShelfProgress(Context context,HotstarWatchNext.Row row,TextView episode,View shade){super(context);this.row=row;this.episode=episode;this.episodeShade=shade;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
+  void setRow(HotstarWatchNext.Row next){
+   row=next;
+   String details=WatchDetails.text(row.title,row.episode,row.seasonNumber,row.episodeNumber,row.position,row.duration);
+   if(!details.contentEquals(episode.getText())){episode.setText(details);highlight(selected);}
   }
-  private void updateEpisode(){episode.setAlpha(hasEpisode?lift:0f);episodeShade.setAlpha(hasEpisode?lift:0f);episode.setTranslationY(dp(6)*(1-lift));}
+  void highlight(boolean focus){
+   selected=focus;
+   float alpha=focus&&episode.length()>0?1f:0f;
+   long duration=animate?(repeatStep?70:120):0;
+   episode.animate().alpha(alpha).setDuration(duration).start();
+   episodeShade.animate().alpha(alpha).setDuration(duration).start();
+  }
   @Override protected void onDraw(android.graphics.Canvas canvas){
-   float inset=dp(13)*lift,bottom=getHeight()-dp(12)*lift,height=dp(3),radius=height*0.5f*lift;
-   android.graphics.RectF track=new android.graphics.RectF(inset,bottom-height,getWidth()-inset,bottom);
+   float inset=dp(13),bottom=getHeight()-dp(12),height=dp(3),radius=height*0.5f;
+   track.set(inset,bottom-height,getWidth()-inset,bottom);
    paint.setColor(0xff65708b);canvas.drawRoundRect(track,radius,radius,paint);
    float fraction=row.duration>0?Math.max(0f,Math.min(1f,(float)row.position/row.duration)):0f;
-   if(fraction>0){canvas.save();android.graphics.Path shape=new android.graphics.Path();shape.addRoundRect(track,radius,radius,android.graphics.Path.Direction.CW);canvas.clipPath(shape);track.right=track.left+track.width()*fraction;paint.setColor(0xff86b6ff);canvas.drawRoundRect(track,radius,radius,paint);canvas.restore();}
+   if(fraction>0){canvas.save();trackClip.rewind();trackClip.addRoundRect(track,radius,radius,android.graphics.Path.Direction.CW);canvas.clipPath(trackClip);track.right=track.left+track.width()*fraction;paint.setColor(0xff86b6ff);canvas.drawRoundRect(track,radius,radius,paint);canvas.restore();}
   }
  }
- private void reveal(HorizontalScrollView scroll,View tile){scroll.post(()->{int left=tile.getLeft()-dp(12),right=tile.getRight()+dp(12);int x=scroll.getScrollX();if(left<x)x=left;else if(right>x+scroll.getWidth())x=right-scroll.getWidth();x=Math.max(0,x);if(animate)scroll.smoothScrollTo(x,0);else scroll.scrollTo(x,0);});}
+ private void reveal(HorizontalScrollView scroll,View tile){
+  RevealRequest request=revealRequests.computeIfAbsent(scroll,k->new RevealRequest());
+  if(request.pending!=null)scroll.removeCallbacks(request.pending);
+  request.pending=()->{
+   request.pending=null;if(!tile.isAttachedToWindow()||!tile.hasFocus())return;
+   int current=scroll.getScrollX(),planned=request.known?request.target:current;
+   int target=ShelfReveal.target(current,planned,scroll.getWidth(),scroll.getChildAt(0).getWidth(),tile.getLeft()-dp(12),tile.getRight()+dp(12));
+   if(animate&&request.known&&target==request.target)return;
+   if(target==current&&(!request.known||planned==current)){request.target=target;request.known=true;return;}
+   // A zero-distance request is required only to stop an old scroll that would hide the new focus.
+   if(animate)scroll.smoothScrollTo(target,0);
+   else{if(request.known&&planned!=current)scroll.smoothScrollTo(current,0);scroll.scrollTo(target,0);}
+   request.target=target;request.known=true;
+  };
+  scroll.post(request.pending);
+ }
+ private void resetReveal(HorizontalScrollView scroll){
+  RevealRequest request=revealRequests.get(scroll);if(request==null)return;
+  if(request.pending!=null)scroll.removeCallbacks(request.pending);request.pending=null;
+  if(request.known&&request.target!=scroll.getScrollX())scroll.smoothScrollTo(scroll.getScrollX(),0);
+  request.known=false;
+ }
+ String focusKind(){return watchLine.hasFocus()?"watch":appsLine.hasFocus()?"apps":"other";}
+ @Override protected void onDetachedFromWindow(){resetReveal(appsScroll);resetReveal(watchScroll);super.onDetachedFromWindow();}
  private void position(boolean animated){
   if(shadeExpanded!=expanded){shadeExpanded=expanded;actions.shade(expanded,animated);}
   float y=expanded?dp(8):Math.max(dp(8),getHeight()-dp(154)-(shows.isEmpty()?dp(30):dp(66)));
+  // Horizontal focus changes keep an in-flight shelf transition running toward the same destination.
+  // Non-animated layout/settings updates must still snap to the requested position.
+  if(animated&&Float.compare(pageTargetY,y)==0)return;
+  pageTargetY=y;
   page.animate().cancel();if(animated)page.animate().translationY(y).setDuration(300).setInterpolator(new DecelerateInterpolator()).start();else page.setTranslationY(y);
  }
- void setMotion(boolean enabled){animate=enabled;if(!enabled){page.animate().cancel();position(false);}}
+ void setMotion(boolean enabled){animate=enabled;if(!enabled){resetReveal(appsScroll);resetReveal(watchScroll);page.animate().cancel();position(false);View appFocus=appsLine.findFocus(),watchFocus=watchLine.findFocus();if(appFocus!=null)reveal(appsScroll,appFocus);if(watchFocus!=null)reveal(watchScroll,watchFocus);}}
  void focusApps(){if(!appTiles.isEmpty())appTiles.get(Math.min(selectedApp,appTiles.size()-1)).requestFocus();}
  private void focusShows(){if(!watchTiles.isEmpty())watchTiles.get(Math.min(selectedShow,watchTiles.size()-1)).requestFocus();}
  int posterStart(){return Math.max(0,selectedShow-1);}

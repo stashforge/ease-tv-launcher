@@ -11,18 +11,26 @@ import java.util.*;
 final class HotstarWatchNext {
  static final String PKG="in.startv.hotstar";
  static final class Row {
-  String id,title,episode,link,posterUri; Bitmap poster; long position,duration,engaged;
-  Row copy(){Row r=new Row();r.id=id;r.title=title;r.episode=episode;r.link=link;r.posterUri=posterUri;r.position=position;r.duration=duration;r.engaged=engaged;return r;}
-  String key(){return id+"|"+title+"|"+episode+"|"+link+"|"+position+"|"+duration+"|"+posterUri+"|"+(poster!=null);}
+  String id,title,episode,seasonNumber,episodeNumber,link,posterUri; Bitmap poster; long position,duration,engaged;
+  Row copy(){Row r=new Row();r.id=id;r.title=title;r.episode=episode;r.seasonNumber=seasonNumber;r.episodeNumber=episodeNumber;r.link=link;r.posterUri=posterUri;r.position=position;r.duration=duration;r.engaged=engaged;return r;}
+  String key(){return id+"|"+title+"|"+episode+"|"+seasonNumber+"|"+episodeNumber+"|"+link+"|"+position+"|"+duration+"|"+posterUri+"|"+(poster!=null);}
  }
  static List<Row> read(Context ctx) {
   List<Row> rows=new ArrayList<>();
-  String[] projection={"_id","package_name","title","episode_title","intent_uri","last_playback_position_millis","duration_millis","last_engagement_time_utc_millis","poster_art_uri"};
-  try(Cursor c=ctx.getContentResolver().query(Uri.parse("content://android.media.tv/watch_next_program"),projection,null,null,null)) {
-   if(c!=null)while(c.moveToNext()) {
-    if(!WatchNextPolicy.usable(c.getString(1),c.getString(2),c.getString(4),c.getLong(5),c.getLong(6)))continue;
-    Row r=new Row();r.id=c.getString(0);r.title=c.getString(2);r.episode=c.getString(3);r.link=c.getString(4);r.position=c.getLong(5);r.duration=c.getLong(6);r.engaged=c.getLong(7);r.posterUri=c.getString(8);
-    if(intent(r.link)!=null)rows.add(r);
+  try(Cursor c=ctx.getContentResolver().query(Uri.parse("content://android.media.tv/watch_next_program"),null,null,null,null)) {
+   if(c!=null){
+    int id=c.getColumnIndexOrThrow("_id"),pkg=c.getColumnIndexOrThrow("package_name"),title=c.getColumnIndexOrThrow("title"),
+     episode=c.getColumnIndexOrThrow("episode_title"),link=c.getColumnIndexOrThrow("intent_uri"),
+     position=c.getColumnIndexOrThrow("last_playback_position_millis"),duration=c.getColumnIndexOrThrow("duration_millis"),
+     engaged=c.getColumnIndexOrThrow("last_engagement_time_utc_millis"),poster=c.getColumnIndexOrThrow("poster_art_uri"),
+     season=c.getColumnIndex("season_display_number"),number=c.getColumnIndex("episode_display_number");
+    while(c.moveToNext()) {
+     if(!WatchNextPolicy.usable(c.getString(pkg),c.getString(title),c.getString(link),c.getLong(position),c.getLong(duration)))continue;
+     Row r=new Row();r.id=c.getString(id);r.title=c.getString(title);r.episode=c.getString(episode);r.link=c.getString(link);
+     r.seasonNumber=season<0?null:c.getString(season);r.episodeNumber=number<0?null:c.getString(number);
+     r.position=c.getLong(position);r.duration=c.getLong(duration);r.engaged=c.getLong(engaged);r.posterUri=c.getString(poster);
+     if(intent(r.link)!=null)rows.add(r);
+    }
    }
   } catch(RuntimeException ignored) { return Collections.emptyList(); }
   rows.sort((a,b)->Long.compare(b.engaged,a.engaged));
@@ -39,9 +47,11 @@ final class HotstarWatchNext {
   }catch(Exception e){return null;}
  }
  static void open(Context ctx,Row row) {
-  try {Intent i=intent(row.link);if(i!=null){ctx.startActivity(i);return;}}catch(RuntimeException ignored){}
+  NavigationDiagnostics.event("launch_attempt",null);
+  try {Intent i=intent(row.link);if(i!=null){ctx.startActivity(i);NavigationDiagnostics.event("launch_submitted",null);return;}}catch(RuntimeException ignored){NavigationDiagnostics.event("launch_error",null);}
   Intent fallback=ctx.getPackageManager().getLeanbackLaunchIntentForPackage(PKG);
-  if(fallback!=null)try{ctx.startActivity(fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(RuntimeException ignored){}
+  if(fallback!=null)try{ctx.startActivity(fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));NavigationDiagnostics.event("fallback_submitted",null);return;}catch(RuntimeException ignored){}
+  NavigationDiagnostics.event("launch_unavailable",null);
  }
  static BitmapDrawable banner(Context ctx,Row r) { return banner(ctx,r,true); }
  static BitmapDrawable banner(Context ctx,Row r,boolean progress) {

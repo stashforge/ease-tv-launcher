@@ -13,8 +13,8 @@ android {
         applicationId providers.gradleProperty('launcherApplicationId').getOrElse('com.ease.tv')
         minSdk 26
         targetSdk 34
-        versionCode 13
-        versionName '1.0.0'
+        versionCode 14
+        versionName '1.1.0'
     }
 
     buildTypes {
@@ -23,7 +23,8 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Sideloaded over ADB, never published: sign with the debug key so it installs over a debug build.
+            // Personal builds retain the existing local debug key for update compatibility.
+            // See README before distributing builds signed with your own key.
             signingConfig signingConfigs.debug
         }
     }
